@@ -310,7 +310,7 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 
 			for writeKey := range kvWriteSets {
 				keyStr := strconv.Itoa(writeKey)
-				txID, found := e.readCache.Get(keyStr)
+				txID, found := e.writeCache.Get(keyStr)
 				if found {
 					if conflictingTX != txParams.TxID {
 						conflictingTX = txID.(string)
