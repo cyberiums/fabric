@@ -15,6 +15,11 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto"
+	"github.com/hyperledger/fabric-chaincode-go/shim"
+	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
+	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
+	pb "github.com/hyperledger/fabric-protos-go/peer"
+	"github.com/hyperledger/fabric-protos-go/transientstore"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/common/util"
@@ -223,6 +228,50 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 
 	var cdLedger ccprovider.ChaincodeDefinition
 	var version string
+	if simResult.PvtSimulationResults != nil {
+		if chaincodeName == "lscc" {
+			// TODO: remove once we can store collection configuration outside of LSCC
+			e.Metrics.SimulationFailure.With(meterLabels...).Add(1)
+			return nil, nil, nil, errors.New("Private data is forbidden to be used in instantiate")
+		}
+		pvtDataWithConfig, err := AssemblePvtRWSet(txParams.ChannelID, simResult.PvtSimulationResults, txParams.TXSimulator, e.Support.GetDeployedCCInfoProvider())
+		pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
+		var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
+		totalSize := 0
+		for _, nsRwset := range pvtNsRwset {
+			pvt := nsRwset.GetCollectionPvtRwset()
+			if pvt != nil {
+				collectionsRwSet = append(collectionsRwSet, pvt)
+				totalSize = totalSize + len(pvt)
+			}
+		}
+
+		rwsetString := make([]string, 0, totalSize)
+		rwsetBytes := make([][]byte, 0, totalSize)
+		kvReadSets := make([][]*kvrwset.KVRead, 0, totalSize)
+		kvWriteSets := make([][]*kvrwset.KVWrite, 0, totalSize)
+		for _, collect := range collectionsRwSet {
+			for _, rw := range collect {
+				s := rw.GetRwset()
+				if s != nil {
+					rwsetString = append(rwsetString, string(s[:]))
+					rwsetBytes = append(rwsetBytes, s)
+				}
+				kvRwset := kvrwset.KVRWSet{}
+				proto.Unmarshal(s, &kvRwset)
+				kvReadSets = append(kvReadSets, kvRwset.Reads)
+				kvWriteSets = append(kvWriteSets, kvRwset.Writes)
+			}
+		}
+
+		fmt.Printf("MATTHEW HO: mhcollectionsRwSet\n %v\n", collectionsRwSet)
+		fmt.Printf("MATTHEW HO: mhRWSET\n %v\n", rwsetBytes)
+		fmt.Printf("MATTHEW HO: mhRWSETstring\n %v\n", rwsetString)
+		fmt.Printf("MATTHEW HO: kvReadSets\n %v\n", kvReadSets)
+		fmt.Printf("MATTHEW HO: kvWriteSets\n %v\n", kvWriteSets)
+		// To read collection config need to read collection updates before
+		// releasing the lock, hence txParams.TXSimulator.Done()  moved down here
+		txParams.TXSimulator.Done()
 
 	if !e.s.IsSysCC(cid.Name) {
 		cdLedger, err = e.s.GetChaincodeDefinition(cid.Name, txParams.TXSimulator)
@@ -290,6 +339,8 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 			return nil, nil, nil, nil, err
 		}
 	}
+	fmt.Printf("mhres1-%v", res)
+
 	return cdLedger, res, pubSimResBytes, ccevent, nil
 }
 
