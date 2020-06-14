@@ -524,6 +524,14 @@
   version = "v0.1.1"
 
 [[projects]]
+  branch = "master"
+  digest = "1:31da830b5a2d27f4b39c7e58a5ada29df4c89de35997ee154ff32a81fe16dcaf"
+  name = "github.com/patrickmn/go-cache"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "46f407853014144407b6c2ec7ccc76bf67958d93"
+
+[[projects]]
   digest = "1:a5e7d4191d0ff352792f9250b9bf4f1ce673915bb5c5830afa0b18700da53dda"
   name = "github.com/pierrec/lz4"
   packages = [
@@ -989,6 +997,7 @@
     "github.com/onsi/gomega/ghttp",
     "github.com/onsi/gomega/types",
     "github.com/op/go-logging",
+    "github.com/patrickmn/go-cache",
     "github.com/pkg/errors",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/prometheus/client_golang/prometheus/promhttp",
