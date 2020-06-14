@@ -746,7 +746,7 @@ func TestSimulateProposal(t *testing.T) {
 		},
 	}, platforms.NewRegistry(&golang.Platform{}), &disabled.Provider{})
 
-	_, _, _, _, err := es.SimulateProposal(&ccprovider.TransactionParams{}, nil)
+	_, _, _, _, _, err := es.SimulateProposal(&ccprovider.TransactionParams{}, nil)
 	assert.Error(t, err)
 }
 
