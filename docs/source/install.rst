@@ -48,12 +48,12 @@ the binaries and images.
 
 .. note:: If you want a specific release, pass a version identifier for Fabric,
           Fabric-ca and thirdparty Docker images.
-          The command below demonstrates how to download **Fabric v1.4.6**
+          The command below demonstrates how to download **Fabric v1.4.7**
 
 .. code:: bash
 
   curl -sSL http://bit.ly/2ysbOFE | bash -s -- <fabric_version> <fabric-ca_version> <thirdparty_version>
-  curl -sSL http://bit.ly/2ysbOFE | bash -s -- 1.4.6 1.4.6 0.4.18
+  curl -sSL http://bit.ly/2ysbOFE | bash -s -- 1.4.7 1.4.7 0.4.20
 
 .. note:: If you get an error running the above curl command, you may
           have too old a version of curl that does not handle
@@ -74,10 +74,11 @@ created above. It retrieves the following platform-specific binaries:
   * ``configtxlator``,
   * ``cryptogen``,
   * ``discover``,
-  * ``idemixgen``
+  * ``idemixgen``,
   * ``orderer``,
-  * ``peer``, and
-  * ``fabric-ca-client``
+  * ``peer``,
+  * ``fabric-ca-client``,
+  * ``fabric-ca-server``
 
 and places them in the ``bin`` sub-directory of the current working
 directory.
