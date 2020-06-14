@@ -15,11 +15,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/crypto"
-	"github.com/hyperledger/fabric-chaincode-go/shim"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset"
-	"github.com/hyperledger/fabric-protos-go/ledger/rwset/kvrwset"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
-	"github.com/hyperledger/fabric-protos-go/transientstore"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/metrics"
 	"github.com/hyperledger/fabric/common/util"
@@ -29,9 +24,12 @@ import (
 	"github.com/hyperledger/fabric/core/common/validation"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protos/ledger/rwset"
+	"github.com/hyperledger/fabric/protos/ledger/rwset/kvrwset"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/hyperledger/fabric/protos/transientstore"
 	putils "github.com/hyperledger/fabric/protos/utils"
+	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -110,7 +108,9 @@ type Endorser struct {
 	s                     Support
 	PlatformRegistry      *platforms.Registry
 	PvtRWSetAssembler
-	Metrics *EndorserMetrics
+	Metrics    *EndorserMetrics
+	readCache  *cache.Cache
+	writeCache *cache.Cache
 }
 
 // validateResult provides the result of endorseProposal verification
@@ -130,6 +130,8 @@ func NewEndorserServer(privDist privateDataDistributor, s Support, pr *platforms
 		PlatformRegistry:      pr,
 		PvtRWSetAssembler:     &rwSetAssembler{},
 		Metrics:               NewEndorserMetrics(metricsProv),
+		readCache:             cache.New(1*time.Minute, 5*time.Minute),
+		writeCache:            cache.New(1*time.Minute, 5*time.Minute),
 	}
 	return e
 }
@@ -215,7 +217,7 @@ func (e *Endorser) SanitizeUserCDS(userCDS *pb.ChaincodeDeploymentSpec) (*pb.Cha
 }
 
 // SimulateProposal simulates the proposal by calling the chaincode
-func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid *pb.ChaincodeID) (ccprovider.ChaincodeDefinition, *pb.Response, []byte, *pb.ChaincodeEvent, error) {
+func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid *pb.ChaincodeID) (ccprovider.ChaincodeDefinition, *pb.Response, []byte, *pb.ChaincodeEvent, string, error) {
 	endorserLogger.Debugf("[%s][%s] Entry chaincode: %s", txParams.ChannelID, shorttxid(txParams.TxID), cid)
 	defer endorserLogger.Debugf("[%s][%s] Exit", txParams.ChannelID, shorttxid(txParams.TxID))
 	// we do expect the payload to be a ChaincodeInvocationSpec
@@ -223,66 +225,22 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 	// as something that should change
 	cis, err := putils.GetChaincodeInvocationSpec(txParams.Proposal)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 
 	var cdLedger ccprovider.ChaincodeDefinition
 	var version string
-	if simResult.PvtSimulationResults != nil {
-		if chaincodeName == "lscc" {
-			// TODO: remove once we can store collection configuration outside of LSCC
-			e.Metrics.SimulationFailure.With(meterLabels...).Add(1)
-			return nil, nil, nil, errors.New("Private data is forbidden to be used in instantiate")
-		}
-		pvtDataWithConfig, err := AssemblePvtRWSet(txParams.ChannelID, simResult.PvtSimulationResults, txParams.TXSimulator, e.Support.GetDeployedCCInfoProvider())
-		pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
-		var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
-		totalSize := 0
-		for _, nsRwset := range pvtNsRwset {
-			pvt := nsRwset.GetCollectionPvtRwset()
-			if pvt != nil {
-				collectionsRwSet = append(collectionsRwSet, pvt)
-				totalSize = totalSize + len(pvt)
-			}
-		}
-
-		rwsetString := make([]string, 0, totalSize)
-		rwsetBytes := make([][]byte, 0, totalSize)
-		kvReadSets := make([][]*kvrwset.KVRead, 0, totalSize)
-		kvWriteSets := make([][]*kvrwset.KVWrite, 0, totalSize)
-		for _, collect := range collectionsRwSet {
-			for _, rw := range collect {
-				s := rw.GetRwset()
-				if s != nil {
-					rwsetString = append(rwsetString, string(s[:]))
-					rwsetBytes = append(rwsetBytes, s)
-				}
-				kvRwset := kvrwset.KVRWSet{}
-				proto.Unmarshal(s, &kvRwset)
-				kvReadSets = append(kvReadSets, kvRwset.Reads)
-				kvWriteSets = append(kvWriteSets, kvRwset.Writes)
-			}
-		}
-
-		fmt.Printf("MATTHEW HO: mhcollectionsRwSet\n %v\n", collectionsRwSet)
-		fmt.Printf("MATTHEW HO: mhRWSET\n %v\n", rwsetBytes)
-		fmt.Printf("MATTHEW HO: mhRWSETstring\n %v\n", rwsetString)
-		fmt.Printf("MATTHEW HO: kvReadSets\n %v\n", kvReadSets)
-		fmt.Printf("MATTHEW HO: kvWriteSets\n %v\n", kvWriteSets)
-		// To read collection config need to read collection updates before
-		// releasing the lock, hence txParams.TXSimulator.Done()  moved down here
-		txParams.TXSimulator.Done()
 
 	if !e.s.IsSysCC(cid.Name) {
 		cdLedger, err = e.s.GetChaincodeDefinition(cid.Name, txParams.TXSimulator)
 		if err != nil {
-			return nil, nil, nil, nil, errors.WithMessage(err, fmt.Sprintf("make sure the chaincode %s has been successfully instantiated and try again", cid.Name))
+			return nil, nil, nil, nil, "", errors.WithMessage(err, fmt.Sprintf("make sure the chaincode %s has been successfully instantiated and try again", cid.Name))
 		}
 		version = cdLedger.CCVersion()
 
 		err = e.s.CheckInstantiationPolicy(cid.Name, version, cdLedger)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, "", err
 		}
 	} else {
 		version = util.GetSysCCVersion()
@@ -293,35 +251,85 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 	var pubSimResBytes []byte
 	var res *pb.Response
 	var ccevent *pb.ChaincodeEvent
+	var conflictingTX string = ""
 	res, ccevent, err = e.callChaincode(txParams, version, cis.ChaincodeSpec.Input, cid)
 	if err != nil {
 		endorserLogger.Errorf("[%s][%s] failed to invoke chaincode %s, error: %+v", txParams.ChannelID, shorttxid(txParams.TxID), cid, err)
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, "", err
 	}
 
 	if txParams.TXSimulator != nil {
 		if simResult, err = txParams.TXSimulator.GetTxSimulationResults(); err != nil {
 			txParams.TXSimulator.Done()
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, "", err
 		}
 
 		if simResult.PvtSimulationResults != nil {
 			if cid.Name == "lscc" {
 				// TODO: remove once we can store collection configuration outside of LSCC
 				txParams.TXSimulator.Done()
-				return nil, nil, nil, nil, errors.New("Private data is forbidden to be used in instantiate")
+				return nil, nil, nil, nil, "", errors.New("Private data is forbidden to be used in instantiate")
 			}
+			pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
+			var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
+			totalSize := 0
+			for _, nsRwset := range pvtNsRwset {
+				pvt := nsRwset.GetCollectionPvtRwset()
+				if pvt != nil {
+					collectionsRwSet = append(collectionsRwSet, pvt)
+					totalSize = totalSize + len(pvt)
+				}
+			}
+
+			kvReadSets := make([]*kvrwset.KVRead, 0, totalSize)
+			kvWriteSets := make([]*kvrwset.KVWrite, 0, totalSize)
+			for _, collect := range collectionsRwSet {
+				for _, rw := range collect {
+					s := rw.GetRwset()
+					if s != nil {
+						kvRwset := kvrwset.KVRWSet{}
+						err := proto.Unmarshal(s, &kvRwset)
+						if err != nil {
+							kvReadSets = append(kvReadSets, kvRwset.Reads...)
+							kvWriteSets = append(kvWriteSets, kvRwset.Writes...)
+						}
+					}
+				}
+			}
+
+			for readKey := range kvReadSets {
+				keyStr := strconv.Itoa(readKey)
+				txID, found := e.readCache.Get(keyStr)
+				if found {
+					if conflictingTX != txParams.TxID {
+						conflictingTX = txID.(string)
+					}
+				}
+				e.readCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
+			}
+
+			for writeKey := range kvWriteSets {
+				keyStr := strconv.Itoa(writeKey)
+				txID, found := e.readCache.Get(keyStr)
+				if found {
+					if conflictingTX != txParams.TxID {
+						conflictingTX = txID.(string)
+					}
+				}
+				e.writeCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
+			}
+
 			pvtDataWithConfig, err := e.AssemblePvtRWSet(simResult.PvtSimulationResults, txParams.TXSimulator)
 			// To read collection config need to read collection updates before
 			// releasing the lock, hence txParams.TXSimulator.Done()  moved down here
 			txParams.TXSimulator.Done()
 
 			if err != nil {
-				return nil, nil, nil, nil, errors.WithMessage(err, "failed to obtain collections config")
+				return nil, nil, nil, nil, "", errors.WithMessage(err, "failed to obtain collections config")
 			}
 			endorsedAt, err := e.s.GetLedgerHeight(txParams.ChannelID)
 			if err != nil {
-				return nil, nil, nil, nil, errors.WithMessage(err, fmt.Sprint("failed to obtain ledger height for channel", txParams.ChannelID))
+				return nil, nil, nil, nil, "", errors.WithMessage(err, fmt.Sprint("failed to obtain ledger height for channel", txParams.ChannelID))
 			}
 			// Add ledger height at which transaction was endorsed,
 			// `endorsedAt` is obtained from the block storage and at times this could be 'endorsement Height + 1'.
@@ -330,18 +338,17 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 			// Ideally, ledger should add support in the simulator as a first class function `GetHeight()`.
 			pvtDataWithConfig.EndorsedAt = endorsedAt
 			if err := e.distributePrivateData(txParams.ChannelID, txParams.TxID, pvtDataWithConfig, endorsedAt); err != nil {
-				return nil, nil, nil, nil, err
+				return nil, nil, nil, nil, "", err
 			}
 		}
 
 		txParams.TXSimulator.Done()
 		if pubSimResBytes, err = simResult.GetPubSimulationBytes(); err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, "", err
 		}
 	}
-	fmt.Printf("mhres1-%v", res)
 
-	return cdLedger, res, pubSimResBytes, ccevent, nil
+	return cdLedger, res, pubSimResBytes, ccevent, conflictingTX, nil
 }
 
 // endorse the proposal by calling the ESCC
@@ -548,7 +555,7 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 	//       to validate the supplied action before endorsing it
 
 	// 1 -- simulate
-	cd, res, simulationResult, ccevent, err := e.SimulateProposal(txParams, hdrExt.ChaincodeId)
+	cd, res, simulationResult, ccevent, conflictingTX, err := e.SimulateProposal(txParams, hdrExt.ChaincodeId)
 	if err != nil {
 		return &pb.ProposalResponse{Response: &pb.Response{Status: 500, Message: err.Error()}}, nil
 	}
@@ -569,6 +576,10 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 
 			return pResp, nil
 		}
+	}
+
+	if conflictingTX != "" {
+		res.Message = conflictingTX
 	}
 
 	// 2 -- endorse and get a marshalled ProposalResponse message
