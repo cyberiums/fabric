@@ -131,7 +131,8 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 		_, keyHasBeenWritten := r.writeKeyMap[key]
 		if keyHasBeenWritten {
 			//write-write conflict
-			return
+			break
+			// return
 		}
 	}
 
@@ -175,23 +176,28 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
 
-	//reorder transactions using tarjanSCC and JohnsonCE
-	graph := make([][]int32, r.txIDCounter-1)
-	invgraph := make([][]int32, r.txIDCounter-1)
+	enableReorder := false
+	if enableReorder {
+		//reorder transactions using tarjanSCC and JohnsonCE
+		graph := make([][]int32, r.txIDCounter-1)
+		invgraph := make([][]int32, r.txIDCounter-1)
 
-	for txID, conflictingTransactions := range r.txDepGraph {
-		for conflictingTxID := range conflictingTransactions {
-			graph[txID] = append(graph[txID], int32(conflictingTxID))
-			invgraph[conflictingTxID] = append(invgraph[conflictingTxID], txID)
+		for txID, conflictingTransactions := range r.txDepGraph {
+			for conflictingTxID := range conflictingTransactions {
+				graph[txID] = append(graph[txID], int32(conflictingTxID))
+				invgraph[conflictingTxID] = append(invgraph[conflictingTxID], txID)
+			}
 		}
-	}
 
-	scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
-	newSchedule, _ := scheduleSerializer.GetSchedule()
+		scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
+		newSchedule, _ := scheduleSerializer.GetSchedule()
 
-	serializedBatch := make([]*cb.Envelope, len(newSchedule))
-	for i := 0; i < len(newSchedule); i++ {
-		serializedBatch[i] = batch[newSchedule[(len(newSchedule))-i]]
+		serializedBatch := make([]*cb.Envelope, len(newSchedule))
+		for i := 0; i < len(newSchedule); i++ {
+			serializedBatch[i] = batch[newSchedule[(len(newSchedule))-i]]
+		}
+
+		batch = serializedBatch
 	}
 
 	r.pendingBatch = nil
@@ -204,7 +210,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.reorderList = make([]int32, 4)
 	r.txIDCounter = 1
 
-	return serializedBatch
+	return batch
 }
 
 func messageSizeBytes(message *cb.Envelope) uint32 {

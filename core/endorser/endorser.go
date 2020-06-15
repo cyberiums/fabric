@@ -270,53 +270,57 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 				txParams.TXSimulator.Done()
 				return nil, nil, nil, nil, "", errors.New("Private data is forbidden to be used in instantiate")
 			}
-			pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
-			var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
-			totalSize := 0
-			for _, nsRwset := range pvtNsRwset {
-				pvt := nsRwset.GetCollectionPvtRwset()
-				if pvt != nil {
-					collectionsRwSet = append(collectionsRwSet, pvt)
-					totalSize = totalSize + len(pvt)
-				}
-			}
 
-			kvReadSets := make([]*kvrwset.KVRead, 0, totalSize)
-			kvWriteSets := make([]*kvrwset.KVWrite, 0, totalSize)
-			for _, collect := range collectionsRwSet {
-				for _, rw := range collect {
-					s := rw.GetRwset()
-					if s != nil {
-						kvRwset := kvrwset.KVRWSet{}
-						err := proto.Unmarshal(s, &kvRwset)
-						if err != nil {
-							kvReadSets = append(kvReadSets, kvRwset.Reads...)
-							kvWriteSets = append(kvWriteSets, kvRwset.Writes...)
+			pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
+			enableReorder := false
+			if enableReorder && pvtNsRwset != nil {
+				var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
+				totalSize := 0
+				for _, nsRwset := range pvtNsRwset {
+					pvt := nsRwset.GetCollectionPvtRwset()
+					if pvt != nil {
+						collectionsRwSet = append(collectionsRwSet, pvt)
+						totalSize = totalSize + len(pvt)
+					}
+				}
+
+				kvReadSets := make([]*kvrwset.KVRead, 0, totalSize)
+				kvWriteSets := make([]*kvrwset.KVWrite, 0, totalSize)
+				for _, collect := range collectionsRwSet {
+					for _, rw := range collect {
+						s := rw.GetRwset()
+						if s != nil {
+							kvRwset := kvrwset.KVRWSet{}
+							err := proto.Unmarshal(s, &kvRwset)
+							if err != nil {
+								kvReadSets = append(kvReadSets, kvRwset.Reads...)
+								kvWriteSets = append(kvWriteSets, kvRwset.Writes...)
+							}
 						}
 					}
 				}
-			}
 
-			for readKey := range kvReadSets {
-				keyStr := strconv.Itoa(readKey)
-				txID, found := e.readCache.Get(keyStr)
-				if found {
-					if conflictingTX != txParams.TxID {
-						conflictingTX = txID.(string)
+				for readKey := range kvReadSets {
+					keyStr := strconv.Itoa(readKey)
+					txID, found := e.readCache.Get(keyStr)
+					if found {
+						if conflictingTX != txParams.TxID {
+							conflictingTX = txID.(string)
+						}
 					}
+					e.readCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
 				}
-				e.readCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
-			}
 
-			for writeKey := range kvWriteSets {
-				keyStr := strconv.Itoa(writeKey)
-				txID, found := e.writeCache.Get(keyStr)
-				if found {
-					if conflictingTX != txParams.TxID {
-						conflictingTX = txID.(string)
+				for writeKey := range kvWriteSets {
+					keyStr := strconv.Itoa(writeKey)
+					txID, found := e.writeCache.Get(keyStr)
+					if found {
+						if conflictingTX != txParams.TxID {
+							conflictingTX = txID.(string)
+						}
 					}
+					e.writeCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
 				}
-				e.writeCache.Set(keyStr, txParams.TxID, cache.DefaultExpiration)
 			}
 
 			pvtDataWithConfig, err := e.AssemblePvtRWSet(simResult.PvtSimulationResults, txParams.TXSimulator)
@@ -578,7 +582,7 @@ func (e *Endorser) ProcessProposal(ctx context.Context, signedProp *pb.SignedPro
 		}
 	}
 
-	if conflictingTX != "" {
+	if false && conflictingTX != "" {
 		res.Message = conflictingTX
 	}
 
