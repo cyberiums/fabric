@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
@@ -125,8 +124,8 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 
 	logger.Debugf("Enqueuing message into batch")
 
-	readSet, writeSet := decodeReadWriteSet(msg)
-	if readSet == nil || writeSet == nil {
+	readSet, writeSet, err := decodeReadWriteSet(msg)
+	if err != nil {
 		logger.Debugf("readSet or writeSet failed to decode")
 	} else {
 		txID := r.txIDCounter
@@ -226,26 +225,26 @@ func messageSizeBytes(message *cb.Envelope) uint32 {
 	return uint32(len(message.Payload) + len(message.Signature))
 }
 
-func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string) {
+func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string, error) {
 	var err error
-	data := make([]byte, messageSizeBytes(msg))
-	data, err = proto.Marshal(msg)
-	if err != nil {
-		logger.Infof("proto data error")
-		return nil, nil
-	}
+	// envBytes := make([]byte, messageSizeBytes(msg))
+	// envBytes, err = proto.Marshal(msg)
+	// if err != nil {
+	// 	logger.Infof("proto data error")
+	// 	return nil, nil, err
+	// }
 
-	payload, err := utils.GetActionFromEnvelope(data)
+	payload, err := utils.GetActionFromEnvelopeMsg(msg)
 	if err != nil {
 		logger.Infof("Error with payload")
-		return nil, nil
+		return nil, nil, err
 	}
 
 	txRWSet := &rwsetutil.TxRwSet{}
 	err = txRWSet.FromProtoBytes(payload.Results)
 	if err != nil {
 		logger.Infof("txrwset error")
-		return nil, nil
+		return nil, nil, err
 	}
 
 	readSet := make(map[string]string)
@@ -261,5 +260,5 @@ func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string)
 		}
 	}
 
-	return readSet, writeSet
+	return readSet, writeSet, nil
 }
