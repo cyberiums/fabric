@@ -146,6 +146,9 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 				//write-read conflict
 				r.reorderList = append(r.reorderList, txID)
 				r.txDepGraph[txID] = append(r.txDepGraph[txID], conflictingTransactions...)
+				for confTx := range conflictingTransactions {
+					r.txDepGraph[int32(confTx)] = append(r.txDepGraph[int32(confTx)], txID)
+				}
 			}
 		}
 
