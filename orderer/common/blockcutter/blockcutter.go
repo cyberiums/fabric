@@ -205,6 +205,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 			serializedBatch[i] = batch[newSchedule[(len(newSchedule)-1)-i]]
 		}
 
+		logger.Debugf("schedule-> %v", newSchedule)
 		batch = serializedBatch
 	}
 
@@ -227,7 +228,8 @@ func messageSizeBytes(message *cb.Envelope) uint32 {
 
 func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string) {
 	var err error
-	data, err := proto.Marshal(msg)
+	data := make([]byte, messageSizeBytes(msg))
+	data, err = proto.Marshal(msg)
 	if err != nil {
 		logger.Infof("proto data error")
 		return nil, nil
