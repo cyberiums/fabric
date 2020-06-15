@@ -124,7 +124,13 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 	}
 
 	logger.Debugf("Enqueuing message into batch")
+
 	readSet, writeSet := decodeReadWriteSet(msg)
+	if readSet == nil || writeSet == nil {
+		logger.Debugf("readSet or writeSet failed to decode")
+		return
+	}
+
 	txID := r.txIDCounter
 	//Check for WW conflicts
 	for key := range writeSet {
@@ -175,11 +181,11 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
 
-	enableReorder := false
+	enableReorder := true
 	if enableReorder {
 		//reorder transactions using tarjanSCC and JohnsonCE
-		graph := make([][]int32, r.txIDCounter-1)
-		invgraph := make([][]int32, r.txIDCounter-1)
+		graph := make([][]int32, r.txIDCounter)
+		invgraph := make([][]int32, r.txIDCounter)
 
 		for txID, conflictingTransactions := range r.txDepGraph {
 			for conflictingTxID := range conflictingTransactions {
@@ -219,20 +225,20 @@ func messageSizeBytes(message *cb.Envelope) uint32 {
 func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string) {
 	var err error
 	data, err := proto.Marshal(msg)
-	if err == nil {
+	if err != nil {
 		logger.Infof("proto data error")
 		return nil, nil
 	}
 
 	payload, err := utils.GetActionFromEnvelope(data)
-	if err == nil {
+	if err != nil {
 		logger.Infof("Error with payload")
 		return nil, nil
 	}
 
 	txRWSet := &rwsetutil.TxRwSet{}
 	err = txRWSet.FromProtoBytes(payload.Results)
-	if err == nil {
+	if err != nil {
 		logger.Infof("txrwset error")
 		return nil, nil
 	}
