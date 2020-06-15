@@ -7,11 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package blockcutter
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/flogging"
+	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/rwsetutil"
+	"github.com/hyperledger/fabric/orderer/common/resolver"
 	cb "github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/protos/utils"
 )
 
 var logger = flogging.MustGetLogger("orderer.common.blockcutter")
@@ -39,6 +44,11 @@ type receiver struct {
 	PendingBatchStartTime time.Time
 	ChannelID             string
 	Metrics               *Metrics
+	readKeyMap            map[string][]int32 //maps readKey -> list of txid
+	writeKeyMap           map[string][]int32 //maps writeKey to list of txid
+	txDepGraph            map[int32][]int32  // txDepGraph[txID] == list of all transactions that this transaction conflicts with
+	reorderList           []int32            //currently unused. Might be used in the future
+	txIDCounter           int32
 }
 
 // NewReceiverImpl creates a Receiver implementation based on the given configtxorderer manager
@@ -47,6 +57,11 @@ func NewReceiverImpl(channelID string, sharedConfigFetcher OrdererConfigFetcher,
 		sharedConfigFetcher: sharedConfigFetcher,
 		Metrics:             metrics,
 		ChannelID:           channelID,
+		readKeyMap:          make(map[string][]int32),
+		writeKeyMap:         make(map[string][]int32),
+		txDepGraph:          make(map[int32][]int32),
+		reorderList:         make([]int32, 4),
+		txIDCounter:         1,
 	}
 }
 
@@ -109,6 +124,35 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 	}
 
 	logger.Debugf("Enqueuing message into batch")
+	readSet, writeSet := decodeReadWriteSet(msg)
+	txID := r.txIDCounter
+	//Check for WW conflicts
+	for key := range writeSet {
+		_, keyHasBeenWritten := r.writeKeyMap[key]
+		if keyHasBeenWritten {
+			//write-write conflict
+			return
+		}
+	}
+
+	//Check for WR conflicts
+	for key := range readSet {
+		conflictingTransactions, keyHasBeenWritten := r.writeKeyMap[key]
+		if keyHasBeenWritten {
+			//write-read conflict
+			r.reorderList = append(r.reorderList, txID)
+			r.txDepGraph[txID] = conflictingTransactions
+		}
+	}
+
+	//Add read-set and write-set to dependency graph
+	for key := range readSet {
+		r.readKeyMap[key] = append(r.readKeyMap[key], txID)
+	}
+	for key := range writeSet {
+		r.writeKeyMap[key] = append(r.writeKeyMap[key], txID)
+	}
+
 	r.pendingBatch = append(r.pendingBatch, msg)
 	r.pendingBatchSizeBytes += messageSizeBytes
 	pending = true
@@ -120,6 +164,8 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 		pending = false
 	}
 
+	r.txIDCounter++
+
 	return
 }
 
@@ -128,11 +174,76 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.Metrics.BlockFillDuration.With("channel", r.ChannelID).Observe(time.Since(r.PendingBatchStartTime).Seconds())
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
+
+	//reorder transactions using tarjanSCC and JohnsonCE
+	graph := make([][]int32, r.txIDCounter-1)
+	invgraph := make([][]int32, r.txIDCounter-1)
+
+	for txID, conflictingTransactions := range r.txDepGraph {
+		for conflictingTxID := range conflictingTransactions {
+			graph[txID] = append(graph[txID], int32(conflictingTxID))
+			invgraph[conflictingTxID] = append(invgraph[conflictingTxID], txID)
+		}
+	}
+
+	scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
+	newSchedule, _ := scheduleSerializer.GetSchedule()
+
+	serializedBatch := make([]*cb.Envelope, len(newSchedule))
+	for i := 0; i < len(newSchedule); i++ {
+		serializedBatch[i] = batch[newSchedule[(len(newSchedule))-i]]
+	}
+
 	r.pendingBatch = nil
 	r.pendingBatchSizeBytes = 0
-	return batch
+
+	//clear values for next block
+	r.readKeyMap = make(map[string][]int32)
+	r.writeKeyMap = make(map[string][]int32)
+	r.txDepGraph = make(map[int32][]int32)
+	r.reorderList = make([]int32, 4)
+	r.txIDCounter = 1
+
+	return serializedBatch
 }
 
 func messageSizeBytes(message *cb.Envelope) uint32 {
 	return uint32(len(message.Payload) + len(message.Signature))
+}
+
+func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string) {
+	var err error
+	data, err := proto.Marshal(msg)
+	if err == nil {
+		logger.Infof("proto data error")
+		return nil, nil
+	}
+
+	payload, err := utils.GetActionFromEnvelope(data)
+	if err == nil {
+		logger.Infof("Error with payload")
+		return nil, nil
+	}
+
+	txRWSet := &rwsetutil.TxRwSet{}
+	err = txRWSet.FromProtoBytes(payload.Results)
+	if err == nil {
+		logger.Infof("txrwset error")
+		return nil, nil
+	}
+
+	readSet := make(map[string]string)
+	writeSet := make(map[string]string)
+	for _, ns := range txRWSet.NsRwSets[1:] {
+		for _, write := range ns.KvRwSet.Writes {
+			writeKey := write.GetKey()
+			writeSet[writeKey] = string(write.GetValue())
+		}
+		for _, read := range ns.KvRwSet.Reads {
+			key := read.GetKey()
+			readSet[key] = fmt.Sprintf("%v", read.GetVersion())
+		}
+	}
+
+	return readSet, writeSet
 }
