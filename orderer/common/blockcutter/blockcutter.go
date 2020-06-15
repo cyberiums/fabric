@@ -180,7 +180,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
 
-	enableReorder := false
+	enableReorder := true
 	if enableReorder {
 		//reorder transactions using tarjanSCC and JohnsonCE
 		graph := make([][]int32, r.txIDCounter)
@@ -193,15 +193,18 @@ func (r *receiver) Cut() []*cb.Envelope {
 			}
 		}
 
-		scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
-		newSchedule, _ := scheduleSerializer.GetSchedule()
+		// scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
+		resolver.NewResolver(&graph, &invgraph)
+		/*
+			newSchedule, _ := scheduleSerializer.GetSchedule()
 
-		serializedBatch := make([]*cb.Envelope, len(newSchedule))
-		for i := 0; i < len(newSchedule); i++ {
-			serializedBatch[i] = batch[newSchedule[(len(newSchedule)-1)-i]]
-		}
+			serializedBatch := make([]*cb.Envelope, len(newSchedule))
+			for i := 0; i < len(newSchedule); i++ {
+				serializedBatch[i] = batch[newSchedule[(len(newSchedule)-1)-i]]
+			}
 
-		batch = serializedBatch
+			batch = serializedBatch
+		*/
 	}
 
 	r.pendingBatch = nil
