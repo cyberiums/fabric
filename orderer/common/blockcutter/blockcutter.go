@@ -128,35 +128,34 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 	readSet, writeSet := decodeReadWriteSet(msg)
 	if readSet == nil || writeSet == nil {
 		logger.Debugf("readSet or writeSet failed to decode")
-		return
-	}
-
-	txID := r.txIDCounter
-	//Check for WW conflicts
-	for key := range writeSet {
-		_, keyHasBeenWritten := r.writeKeyMap[key]
-		if keyHasBeenWritten {
-			//write-write conflict
-			return
+	} else {
+		txID := r.txIDCounter
+		//Check for WW conflicts
+		for key := range writeSet {
+			_, keyHasBeenWritten := r.writeKeyMap[key]
+			if keyHasBeenWritten {
+				//write-write conflict
+				return
+			}
 		}
-	}
 
-	//Check for WR conflicts
-	for key := range readSet {
-		conflictingTransactions, keyHasBeenWritten := r.writeKeyMap[key]
-		if keyHasBeenWritten {
-			//write-read conflict
-			r.reorderList = append(r.reorderList, txID)
-			r.txDepGraph[txID] = conflictingTransactions
+		//Check for WR conflicts
+		for key := range readSet {
+			conflictingTransactions, keyHasBeenWritten := r.writeKeyMap[key]
+			if keyHasBeenWritten {
+				//write-read conflict
+				r.reorderList = append(r.reorderList, txID)
+				r.txDepGraph[txID] = conflictingTransactions
+			}
 		}
-	}
 
-	//Add read-set and write-set to dependency graph
-	for key := range readSet {
-		r.readKeyMap[key] = append(r.readKeyMap[key], txID)
-	}
-	for key := range writeSet {
-		r.writeKeyMap[key] = append(r.writeKeyMap[key], txID)
+		//Add read-set and write-set to dependency graph
+		for key := range readSet {
+			r.readKeyMap[key] = append(r.readKeyMap[key], txID)
+		}
+		for key := range writeSet {
+			r.writeKeyMap[key] = append(r.writeKeyMap[key], txID)
+		}
 	}
 
 	r.pendingBatch = append(r.pendingBatch, msg)
