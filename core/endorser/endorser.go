@@ -272,8 +272,8 @@ func (e *Endorser) SimulateProposal(txParams *ccprovider.TransactionParams, cid 
 			}
 
 			pvtNsRwset := simResult.PvtSimulationResults.GetNsPvtRwset()
-			enableReorder := false
-			if enableReorder && pvtNsRwset != nil {
+			enableClientWarning := true
+			if enableClientWarning && pvtNsRwset != nil {
 				var collectionsRwSet = make([][]*rwset.CollectionPvtReadWriteSet, 0, len(pvtNsRwset))
 				totalSize := 0
 				for _, nsRwset := range pvtNsRwset {

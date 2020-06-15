@@ -131,8 +131,7 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 		_, keyHasBeenWritten := r.writeKeyMap[key]
 		if keyHasBeenWritten {
 			//write-write conflict
-			break
-			// return
+			return
 		}
 	}
 
