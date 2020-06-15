@@ -145,7 +145,7 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 			if keyHasBeenWritten {
 				//write-read conflict
 				r.reorderList = append(r.reorderList, txID)
-				r.txDepGraph[txID] = conflictingTransactions
+				r.txDepGraph[txID] = append(r.txDepGraph[txID], conflictingTransactions...)
 			}
 		}
 
@@ -180,7 +180,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
 
-	enableReorder := false
+	enableReorder := true
 	if enableReorder {
 		//reorder transactions using tarjanSCC and JohnsonCE
 		graph := make([][]int32, r.txIDCounter)
