@@ -198,7 +198,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 
 		serializedBatch := make([]*cb.Envelope, len(newSchedule))
 		for i := 0; i < len(newSchedule); i++ {
-			serializedBatch[i] = batch[newSchedule[(len(newSchedule))-i]]
+			serializedBatch[i] = batch[newSchedule[(len(newSchedule)-1)-i]]
 		}
 
 		batch = serializedBatch
