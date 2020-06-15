@@ -180,7 +180,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.PendingBatchStartTime = time.Time{}
 	batch := r.pendingBatch
 
-	enableReorder := true
+	enableReorder := false
 	if enableReorder {
 		//reorder transactions using tarjanSCC and JohnsonCE
 		graph := make([][]int32, r.txIDCounter)
