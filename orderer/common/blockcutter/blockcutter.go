@@ -236,7 +236,7 @@ func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string,
 
 	payload, err := utils.GetActionFromEnvelopeMsg(msg)
 	if err != nil {
-		logger.Infof("Error with payload")
+		logger.Infof("Error with payload: %v", err)
 		return nil, nil, err
 	}
 
