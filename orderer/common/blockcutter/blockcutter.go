@@ -184,7 +184,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	batch := r.pendingBatch
 
 	enableReorder := true
-	if enableReorder {
+	if enableReorder && len(batch) > 1 {
 		//reorder transactions using tarjanSCC and JohnsonCE
 		graph := make([][]int32, r.txIDCounter)
 		invgraph := make([][]int32, r.txIDCounter)
