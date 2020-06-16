@@ -250,7 +250,7 @@ func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string,
 
 	readSet := make(map[string]string)
 	writeSet := make(map[string]string)
-	for _, ns := range txRWSet.NsRwSets[1:] {
+	for _, ns := range txRWSet.NsRwSets {
 		for _, write := range ns.KvRwSet.Writes {
 			writeKey := write.GetKey()
 			writeSet[writeKey] = string(write.GetValue())
