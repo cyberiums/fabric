@@ -234,14 +234,15 @@ func decodeReadWriteSet(msg *cb.Envelope) (map[string]string, map[string]string,
 	// 	return nil, nil, err
 	// }
 
-	payload, err := utils.GetActionFromEnvelopeMsg(msg)
+	// payload, err := utils.GetActionFromEnvelopeMsg(msg)
+	envBytes, err := utils.GetBytesEnvelope(msg)
 	if err != nil {
-		logger.Infof("Error with payload: %v", err)
+		logger.Infof("Error with getting envBytes: %v", err)
 		return nil, nil, err
 	}
 
 	txRWSet := &rwsetutil.TxRwSet{}
-	err = txRWSet.FromProtoBytes(payload.Results)
+	err = txRWSet.FromProtoBytes(envBytes)
 	if err != nil {
 		logger.Infof("txrwset error")
 		return nil, nil, err
