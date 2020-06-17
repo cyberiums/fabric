@@ -59,8 +59,13 @@ func (res *resolver) GetSchedule() ([]int32, []bool) {
 
 	disabled := true
 	if disabled {
+		schedule := make([]int32, nvertices-invCount)
+		for i := int32(0); i < int32(len(schedule)); i++ {
+			schedule[i] = i
+		}
 		return schedule, nil
 	}
+
 	for remainingVertices != 0 {
 		addVertex := true
 		if visited[start] || invSet[start] {
