@@ -134,7 +134,9 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 			_, keyHasBeenWritten := r.writeKeyMap[key]
 			if keyHasBeenWritten {
 				//write-write conflict
-				return
+				// return
+				logger.Infof("Write-write conflict detected")
+				continue //return might cause issues?
 			}
 		}
 
@@ -143,6 +145,7 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 			conflictingTransactions, keyHasBeenWritten := r.writeKeyMap[key]
 			if keyHasBeenWritten {
 				//write-read conflict
+				logger.Infof("Write-read conflict detected")
 				r.reorderList = append(r.reorderList, txID)
 				r.txDepGraph[txID] = append(r.txDepGraph[txID], conflictingTransactions...)
 				for confTx := range conflictingTransactions {
