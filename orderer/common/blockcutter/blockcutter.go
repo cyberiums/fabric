@@ -188,8 +188,8 @@ func (r *receiver) Cut() []*cb.Envelope {
 	enableReorder := true
 	if enableReorder && len(batch) > 1 {
 		//reorder transactions using tarjanSCC and JohnsonCE
-		graph := make([][]int32, 0, r.txIDCounter)
-		invgraph := make([][]int32, 0, r.txIDCounter)
+		graph := make([][]int32, r.txIDCounter)
+		invgraph := make([][]int32, r.txIDCounter)
 		for i := int32(0); i < r.txIDCounter; i++ {
 			graph[i] = make([]int32, 0, r.txIDCounter)
 			invgraph[i] = make([]int32, 0, r.txIDCounter)
