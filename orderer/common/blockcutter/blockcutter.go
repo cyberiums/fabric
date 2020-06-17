@@ -136,7 +136,7 @@ func (r *receiver) Ordered(msg *cb.Envelope) (messageBatches [][]*cb.Envelope, p
 				//write-write conflict
 				// return
 				logger.Infof("Write-write conflict detected")
-				continue //return might cause issues?
+				return
 			}
 		}
 
@@ -199,7 +199,6 @@ func (r *receiver) Cut() []*cb.Envelope {
 		}
 
 		scheduleSerializer := resolver.NewResolver(&graph, &invgraph)
-		// resolver.NewResolver(&graph, &invgraph)
 		newSchedule, _ := scheduleSerializer.GetSchedule()
 
 		serializedBatch := make([]*cb.Envelope, len(newSchedule))
@@ -208,7 +207,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 		}
 
 		logger.Debugf("schedule-> %v", newSchedule)
-		batch = serializedBatch
+		// batch = serializedBatch
 	}
 
 	r.pendingBatch = nil
