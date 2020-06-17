@@ -57,6 +57,7 @@ func (res *resolver) GetSchedule() ([]int32, []bool) {
 	// start vertex
 	start := int32(0)
 
+	return schedule, nil
 	for remainingVertices != 0 {
 		addVertex := true
 		if visited[start] || invSet[start] {
