@@ -60,7 +60,7 @@ func NewReceiverImpl(channelID string, sharedConfigFetcher OrdererConfigFetcher,
 		writeKeyMap:         make(map[string][]int32),
 		txDepGraph:          make(map[int32][]int32),
 		reorderList:         make([]int32, 4),
-		txIDCounter:         1,
+		txIDCounter:         0,
 	}
 }
 
@@ -218,7 +218,7 @@ func (r *receiver) Cut() []*cb.Envelope {
 	r.writeKeyMap = make(map[string][]int32)
 	r.txDepGraph = make(map[int32][]int32)
 	r.reorderList = make([]int32, 4)
-	r.txIDCounter = 1
+	r.txIDCounter = 0
 
 	return batch
 }
